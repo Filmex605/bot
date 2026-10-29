@@ -13,19 +13,20 @@ TOKEN = "9156028501:AAGO9cUk8dCTdfdYGCkREdv0mYRn8ZQ_koU"
 PORT = int(os.environ.get("PORT", "10000"))
 RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL") # URL automática fornecida pelo Render
 
-# ID ou Username do seu Canal/Grupo VIP no Telegram (substitua pelo seu ID real com -100...)
+# ID ou Username do seu Canal/Grupo VIP no Telegram
 CANAL_VIP_ID = "-1004366728974"
 
 # Inicializa o Flask e a Aplicação do Telegram
 app = Flask(__name__)
 telegram_app = None
+loop = None
 
 # 1. Comando /start no Telegram
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_name = update.effective_user.first_name
     keyboard = [
         [InlineKeyboardButton("⭐ Conhecer o Filmex", callback_data="plano_vip")],
-        [InlineKeyboardButton("💬 Falar com o Suporte", url="https://t.me/-1004366728974")]
+        [InlineKeyboardButton("💬 Falar com o Suporte", url="https://t.me/Filmex_Grupo")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -36,7 +37,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-# 2. Cliques nos botões do Telegram (Com captura dinâmica do ID via UTM)
+# 2. Cliques nos botões do Telegram (Com captura dinâmica do ID via ref)
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -45,8 +46,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Captura automaticamente o ID do Telegram do cliente que clicou no botão
         telegram_id_cliente = update.effective_user.id
         
-        # Injeta o ID do cliente na URL da Kiwify via utm_campaign de forma invisível
-        link_kiwify = f"https://pay.kiwify.com.br/cGoSyA8?utm_campaign={telegram_id_cliente}"
+        # Injeta o ID do cliente na URL da Kiwify via parâmetro ref
+        link_kiwify = f"https://pay.kiwify.com.br/cGoSyA8?ref={telegram_id_cliente}"
         
         keyboard = [
             [InlineKeyboardButton("💳 Pagar Assinatura (Kiwify)", url=link_kiwify)],
@@ -75,7 +76,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def telegram_webhook():
     json_data = request.get_json(force=True)
     update = Update.de_json(json_data, telegram_app.bot)
-    asyncio.run(telegram_app.process_update(update))
+    
+    # Processa o update de forma segura usando o loop principal
+    future = asyncio.run_coroutine_threadsafe(telegram_app.process_update(update), loop)
+    future.result()
+    
     return jsonify({"status": "ok"}), 200
 
 # 4. Rota de Ping (Anti-Sleep para o UptimeRobot)
@@ -92,11 +97,11 @@ def webhook_kiwify():
         
         # Verifica se o pagamento foi aprovado
         if status == "paid" or status == "approved":
-            # Captura o ID do Telegram enviado pela UTM da URL de pagamento
-            utm_data = dados.get("utm_campaign") or dados.get("tracking", {}).get("utm_campaign")
+            # Captura o ID do Telegram enviado pelo ref da URL de pagamento
+            cliente_telegram_id = dados.get("ref") or dados.get("tracking", {}).get("ref") or dados.get("custom_field")
             
-            if utm_data:
-                cliente_telegram_id = int(utm_data)
+            if cliente_telegram_id:
+                cliente_telegram_id = int(cliente_telegram_id)
                 
                 import datetime
                 expire_date = datetime.datetime.now() + datetime.timedelta(days=1)
@@ -119,7 +124,9 @@ def webhook_kiwify():
                              f"⚠️ *Este link é de uso único e expira em 24 horas.*"
                     )
 
-                asyncio.run(enviar_convite())
+                # Envia o convite de forma segura utilizando o loop principal do Telegram
+                future = asyncio.run_coroutine_threadsafe(enviar_convite(), loop)
+                future.result()
 
         return jsonify({"status": "recebido"}), 200
     except Exception as e:
@@ -131,7 +138,9 @@ def home():
     return "Filmex rodando!"
 
 async def setup_bot():
-    global telegram_app
+    global telegram_app, loop
+    loop = asyncio.get_running_loop()
+    
     telegram_app = Application.builder().token(TOKEN).build()
 
     telegram_app.add_handler(CommandHandler('start', start))
@@ -146,8 +155,22 @@ async def setup_bot():
         logging.info(f"Webhook configurado com sucesso para: {webhook_url}")
 
     await telegram_app.start()
+    
+    # Mantém o servidor rodando sem bloquear o loop
+    await asyncio.Event().wait()
 
 if __name__ == '__main__':
-    # Inicializa o bot/webhook e sobe o servidor Flask
-    asyncio.run(setup_bot())
-    app.run(host="0.0.0.0", port=PORT, debug=False)
+    from threading import Thread
+    
+    # Sobe o servidor Flask em background numa thread separada
+    def run_flask():
+        app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
+
+    flask_thread = Thread(target=run_flask)
+    flask_thread.daemon = True
+    flask_thread.start()
+
+    try:
+        asyncio.run(setup_bot())
+    except KeyboardInterrupt:
+        pass
