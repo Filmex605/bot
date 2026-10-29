@@ -1,6 +1,7 @@
 import os
 import logging
 import asyncio
+import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from flask import Flask, request, jsonify
@@ -13,8 +14,13 @@ TOKEN = "9156028501:AAGO9cUk8dCTdfdYGCkREdv0mYRn8ZQ_koU"
 PORT = int(os.environ.get("PORT", "10000"))
 RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL") # URL automática fornecida pelo Render
 
-# ID ou Username do seu Canal/Grupo VIP no Telegram
+# ID numérico do seu Canal VIP no Telegram
 CANAL_VIP_ID = "-1004366728974"
+CANAL_GT = "-1004377593053"
+
+# Dicionário temporário em memória para armazenar {telegram_id: data_de_expiracao}
+# Dica: Em projetos de grande escala, recomenda-se usar um banco de dados como SQLite ou PostgreSQL.
+REGISTRO_ASSINANTES = {}
 
 # Inicializa o Flask e a Aplicação do Telegram
 app = Flask(__name__)
@@ -26,7 +32,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_name = update.effective_user.first_name
     keyboard = [
         [InlineKeyboardButton("⭐ Conhecer o Filmex", callback_data="plano_vip")],
-        [InlineKeyboardButton("💬 Falar com o Suporte", url="https://t.me/-1004366728974")]
+        [InlineKeyboardButton("💬 Falar com o Suporte", url="https://t.me/-1004377593053")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -37,7 +43,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-# 2. Cliques nos botões do Telegram (Com captura dinâmica do ID via ref)
+# 2. Cliques nos botões do Telegram (Com captura dinâmica do ID via parâmetro ref)
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -46,7 +52,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Captura automaticamente o ID do Telegram do cliente que clicou no botão
         telegram_id_cliente = update.effective_user.id
         
-        # Injeta o ID do cliente na URL da Kiwify via parâmetro ref
+        # Injeta o ID do cliente na URL da Kiwify via parâmetro ref de forma invisível
         link_kiwify = f"https://pay.kiwify.com.br/cGoSyA8?ref={telegram_id_cliente}"
         
         keyboard = [
@@ -66,7 +72,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "voltar_inicio":
         keyboard = [
             [InlineKeyboardButton("⭐ Conhecer grupo Filmex", callback_data="plano_vip")],
-            [InlineKeyboardButton("💬 Falar com o Suporte", url="https://t.me/Filmex_Grupo")]
+            [InlineKeyboardButton("💬 Falar com o Suporte", url="https://t.me/-1004377593053")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(text="Escolha uma opção:", reply_markup=reply_markup)
@@ -88,7 +94,7 @@ def telegram_webhook():
 def ping_server():
     return "Pong! Servidor ativo.", 200
 
-# 5. Rota de Webhook da Kiwify (Entrega Automatizada do Link VIP)
+# 5. Rota de Webhook da Kiwify (Entrega Automatizada do Link VIP e Gestão de Prazos)
 @app.route('/webhook-kiwify', methods=['POST'])
 def webhook_kiwify():
     dados = request.json
@@ -97,41 +103,111 @@ def webhook_kiwify():
         
         # Verifica se o pagamento foi aprovado
         if status == "paid" or status == "approved":
-            # Captura o ID do Telegram enviado pelo ref da URL de pagamento
             cliente_telegram_id = dados.get("ref") or dados.get("tracking", {}).get("ref") or dados.get("custom_field")
             
             if cliente_telegram_id:
                 cliente_telegram_id = int(cliente_telegram_id)
                 
-                import datetime
-                expire_date = datetime.datetime.now() + datetime.timedelta(days=1)
+                # Define a validade do acesso (Exemplo: 30 dias para mensalidade)
+                # Altere para datetime.timedelta(days=1) se quiser testar com 24h
+                expire_access_date = datetime.datetime.now() + datetime.timedelta(days=30)
                 
-                async def enviar_convite():
-                    # Cria o link de convite único (válido por 24h e para 1 único uso)
+                # Salva ou atualiza a data limite do assinante no registro
+                REGISTRO_ASSINANTES[cliente_telegram_id] = expire_access_date
+                
+                async def enviar_convite_e_acesso():
+                    # Link de convite válido pelo período correspondente
                     link_convite = await telegram_app.bot.create_chat_invite_link(
                         chat_id=CANAL_VIP_ID,
                         member_limit=1,
-                        expire_date=expire_date
+                        expire_date=expire_access_date
                     )
                     
-                    # Envia o link no chat privado do cliente no Telegram
                     await telegram_app.bot.send_message(
                         chat_id=cliente_telegram_id,
                         text=f"🎉 **Pagamento Aprovado com Sucesso!**\n\n"
                              f"Obrigado por assinar o **Filmex**!\n"
                              f"Aqui está o seu link de acesso exclusivo para o canal VIP:\n\n"
                              f"{link_convite.invite_link}\n\n"
-                             f"⚠️ *Este link é de uso único e expira em 24 horas.*"
+                             f"⚠️ *Este link é de uso único e sua assinatura é válida por 30 dias.*"
                     )
 
-                # Envia o convite de forma segura utilizando o loop principal do Telegram
-                future = asyncio.run_coroutine_threadsafe(enviar_convite(), loop)
+                future = asyncio.run_coroutine_threadsafe(enviar_convite_e_acesso(), loop)
                 future.result()
 
         return jsonify({"status": "recebido"}), 200
     except Exception as e:
         logging.error(f"Erro no webhook Kiwify: {e}")
         return jsonify({"status": "erro"}), 500
+
+# 6. Tarefa em background para verificar e remover assinantes vencidos
+async def verificar_assinaturas_vencidas():
+    await asyncio.sleep(20) # Aguarda o bot iniciar
+    while True:
+        try:
+            agora = datetime.datetime.now()
+            # Cria uma lista de IDs para remover (evita erro de modificação de dicionário durante o loop)
+            vencidos = [user_id for user_id, data_exp in REGISTRO_ASSINANTES.items() if agora > data_exp]
+            
+            for user_id in vencidos:
+                try:
+                    # Remove o usuário do canal VIP (bane e desbane em seguida para revogar o acesso)
+                    await telegram_app.bot.ban_chat_member(chat_id=CANAL_VIP_ID, user_id=user_id)
+                    await telegram_app.bot.unban_chat_member(chat_id=CANAL_VIP_ID, user_id=user_id)
+                    
+                    # Avisa o usuário no chat privado que o acesso expirou
+                    await telegram_app.bot.send_message(
+                        chat_id=user_id,
+                        text="⚠️ **Sua assinatura do Filmex expirou!**\n\n"
+                             f"O seu acesso ao canal VIP foi encerrado. Para continuar desfrutando de todo o conteúdo, "
+                             f"renove a sua assinatura através do nosso bot com o comando /start."
+                    )
+                    
+                    logging.info(f"Usuário {user_id} removido do canal por expiração de prazo.")
+                except Exception as inner_err:
+                    logging.error(f"Não foi possível remover o usuário {user_id}: {inner_err}")
+                
+                # Remove do registro após tratar
+                del REGISTRO_ASSINANTES[user_id]
+                
+        except Exception as e:
+            logging.error(f"Erro na verificação de assinaturas vencidas: {e}")
+        
+        # Roda a checagem a cada 1 hora (3600 segundos)
+        await asyncio.sleep(3600)
+
+# 7. Tarefa em loop para envio automático do texto persuasivo para o canal
+async def loop_envio_canal():
+    await asyncio.sleep(10)
+    
+    while True:
+        try:
+            texto_automatico = (
+                "🍿 **Já imaginou ter acesso aos melhores lançamentos sem precisar procurar em dezenas de sites?**\n\n"
+                "No **Filmex**, nós filtramos e organizamos o melhor do cinema e das séries para você assistir direto no Telegram, "
+                "sem anúncios chatos, sem links maliciosos e com alta qualidade.\n\n"
+                "🎬 **O que você encontra por aqui:**\n"
+                "• Conteúdos atualizados constantemente.\n"
+                "• Um ambiente fechado, organizado e sem distrações.\n"
+                "• Tudo na palma da sua mão, pronto para dar o play.\n\n"
+                "Quer fazer parte do nosso canal VIP e liberar o seu acesso completo hoje mesmo?"
+            )
+            
+            keyboard = [[InlineKeyboardButton("⭐ Conhecer o Filmex", url="https://t.me/-1004377593053")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await telegram_app.bot.send_message(
+                chat_id=CANAL_GT,
+                text=texto_automatico,
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+            
+            logging.info("Mensagem automática enviada com sucesso para cái.")
+        except Exception as e:
+            logging.error(f"Erro ao enviar mensagem automática no loop: {e}")
+        
+        await asyncio.sleep(7200) # A cada 2 horas
 
 @app.route('/')
 def home():
@@ -148,7 +224,6 @@ async def setup_bot():
 
     await telegram_app.initialize()
     
-    # Configura automaticamente o Webhook do Telegram apontando para o Render
     if RENDER_URL:
         webhook_url = f"{RENDER_URL}/{TOKEN}"
         await telegram_app.bot.set_webhook(url=webhook_url)
@@ -156,13 +231,15 @@ async def setup_bot():
 
     await telegram_app.start()
     
-    # Mantém o servidor rodando sem bloquear o loop
+    # Inicia as tarefas em background (Loop de anúncios e Checagem de inadimplentes)
+    asyncio.create_task(loop_envio_canal())
+    asyncio.create_task(verificar_assinaturas_vencidas())
+    
     await asyncio.Event().wait()
 
 if __name__ == '__main__':
     from threading import Thread
     
-    # Sobe o servidor Flask em background numa thread separada
     def run_flask():
         app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
 
