@@ -59,15 +59,48 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def ping_server():
     return "Pong! Servidor ativo.", 200
 
-# 4. Rota de Pagamento da Kiwify
+CANAL_VIP_ID = "-1001234567890"  # Substitua pelo ID real do seu canal/grupo
+
+# 5. Rota de Pagamento da Kiwify com automação de envio do link
 @app.route('/webhook-kiwify', methods=['POST'])
 def webhook_kiwify():
     dados = request.json
     try:
         status = dados.get("status") or dados.get("order_status")
+        
+        # Verifica se a compra foi aprovada/paga
         if status == "paid" or status == "approved":
-            # Aqui entrará a lógica de liberação automática para o chat_id do cliente
-            pass
+            # Tenta capturar o Telegram ID ou o e-mail do cliente enviado pela Kiwify
+            # (Nota: O ideal é configurar parâmetros UTM ou o ID do Telegram no checkout da Kiwify)
+            cliente_telegram_id = dados.get("customer", {}).get("telegram_id") # ou campo personalizado
+            
+            # Como alternativa segura caso use o e-mail para notificar o suporte ou salvar no banco:
+            # cliente_email = dados.get("customer", {}).get("email")
+
+            if cliente_telegram_id:
+                # Cria um link de convite que expira em 24 horas e serve para apenas 1 uso
+                import datetime
+                expire_date = datetime.datetime.now() + datetime.timedelta(days=1)
+                
+                # Executa a criação do link via API do Telegram de forma assíncrona
+                async def enviar_convite():
+                    link_convite = await telegram_app.bot.create_chat_invite_link(
+                        chat_id=CANAL_VIP_ID,
+                        member_limit=1,
+                        expire_date=expire_date
+                    )
+                    # Envia o link diretamente para o chat privado do cliente no Telegram
+                    await telegram_app.bot.send_message(
+                        chat_id=cliente_telegram_id,
+                        text=f"🎉 **Pagamento Aprovado com Sucesso!**\n\n"
+                             f"Obrigado por assinar o **Filmex**!\n"
+                             f"Aqui está o seu link de acesso exclusivo e individual para o nosso canal VIP:\n\n"
+                             f"{link_convite.invite_link}\n\n"
+                             f"⚠️ *Este link é de uso único e expira em 24 horas.*"
+                    )
+
+                asyncio.run(enviar_convite())
+
         return jsonify({"status": "recebido"}), 200
     except Exception as e:
         logging.error(f"Erro no webhook Kiwify: {e}")
