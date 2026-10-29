@@ -14,12 +14,11 @@ TOKEN = "9156028501:AAGO9cUk8dCTdfdYGCkREdv0mYRn8ZQ_koU"
 PORT = int(os.environ.get("PORT", "10000"))
 RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL") # URL automática fornecida pelo Render
 
-# ID numérico do seu Canal VIP no Telegram
+# ID numérico do seu Canal VIP e Canal de Divulgação (GT)
 CANAL_VIP_ID = "-1004366728974"
 CANAL_GT = "-1004377593053"
 
 # Dicionário temporário em memória para armazenar {telegram_id: data_de_expiracao}
-# Dica: Em projetos de grande escala, recomenda-se usar um banco de dados como SQLite ou PostgreSQL.
 REGISTRO_ASSINANTES = {}
 
 # Inicializa o Flask e a Aplicação do Telegram
@@ -109,7 +108,6 @@ def webhook_kiwify():
                 cliente_telegram_id = int(cliente_telegram_id)
                 
                 # Define a validade do acesso (Exemplo: 30 dias para mensalidade)
-                # Altere para datetime.timedelta(days=1) se quiser testar com 24h
                 expire_access_date = datetime.datetime.now() + datetime.timedelta(days=30)
                 
                 # Salva ou atualiza a data limite do assinante no registro
@@ -146,7 +144,6 @@ async def verificar_assinaturas_vencidas():
     while True:
         try:
             agora = datetime.datetime.now()
-            # Cria uma lista de IDs para remover (evita erro de modificação de dicionário durante o loop)
             vencidos = [user_id for user_id, data_exp in REGISTRO_ASSINANTES.items() if agora > data_exp]
             
             for user_id in vencidos:
@@ -167,16 +164,14 @@ async def verificar_assinaturas_vencidas():
                 except Exception as inner_err:
                     logging.error(f"Não foi possível remover o usuário {user_id}: {inner_err}")
                 
-                # Remove do registro após tratar
                 del REGISTRO_ASSINANTES[user_id]
                 
         except Exception as e:
             logging.error(f"Erro na verificação de assinaturas vencidas: {e}")
         
-        # Roda a checagem a cada 1 hora (3600 segundos)
         await asyncio.sleep(3600)
 
-# 7. Tarefa em loop para envio automático do texto persuasivo para o canal
+# 7. Tarefa em loop para envio automático do texto persuasivo para o canal (Com redirecionamento direto para o chat do bot)
 async def loop_envio_canal():
     await asyncio.sleep(10)
     
@@ -186,14 +181,15 @@ async def loop_envio_canal():
                 "🍿 **Já imaginou ter acesso aos melhores lançamentos sem precisar procurar em dezenas de sites?**\n\n"
                 "No **Filmex**, nós filtramos e organizamos o melhor do cinema e das séries para você assistir direto no Telegram, "
                 "sem anúncios chatos, sem links maliciosos e com alta qualidade.\n\n"
-                "🎬 **O que você encontra por aqui:**\n"
+                "🎬 **O que você encontra por hierarquia:**\n"
                 "• Conteúdos atualizados constantemente.\n"
                 "• Um ambiente fechado, organizado e sem distrações.\n"
                 "• Tudo na palma da sua mão, pronto para dar o play.\n\n"
                 "Quer fazer parte do nosso canal VIP e liberar o seu acesso completo hoje mesmo?"
             )
             
-            keyboard = [[InlineKeyboardButton("⭐ Conhecer o Filmex", url="https://t.me/@QThin_bot")]]
+            # Botão apontando diretamente para o chat do bot no Telegram
+            keyboard = [[InlineKeyboardButton("⭐ Conhecer o Filmex", url="https://t.me/QThin_bot")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             await telegram_app.bot.send_message(
@@ -203,7 +199,7 @@ async def loop_envio_canal():
                 parse_mode="Markdown"
             )
             
-            logging.info("Mensagem automática enviada com sucesso para cái.")
+            logging.info("Mensagem automática enviada com sucesso para o canal GT.")
         except Exception as e:
             logging.error(f"Erro ao enviar mensagem automática no loop: {e}")
         
@@ -231,7 +227,6 @@ async def setup_bot():
 
     await telegram_app.start()
     
-    # Inicia as tarefas em background (Loop de anúncios e Checagem de inadimplentes)
     asyncio.create_task(loop_envio_canal())
     asyncio.create_task(verificar_assinaturas_vencidas())
     
