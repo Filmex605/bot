@@ -30,7 +30,7 @@ loop = None
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_name = update.effective_user.first_name
     keyboard = [
-        [InlineKeyboardButton("⭐ Conhecer o Filmex", callback_data="plano_vip")],
+        [InlineKeyboardButton("⭐ Conhecer o Filmex PLUS", callback_data="plano_vip")],
         [InlineKeyboardButton("💬 Falar com o Suporte", url="https://t.me/-1004377593053")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -61,7 +61,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await query.edit_message_text(
-            text="👑 **Filmex - Plano Mensal**\n\n"
+            text="👑 **Filmex PLUS - Plano Mensal**\n\n"
                  "✅ Acesso ilimitado ao canal fechado\n"
                  "💰 **Valor:** R$ 9,90/mês",
             reply_markup=reply_markup,
@@ -70,7 +70,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif query.data == "voltar_inicio":
         keyboard = [
-            [InlineKeyboardButton("⭐ Conhecer grupo Filmex", callback_data="plano_vip")],
+            [InlineKeyboardButton("⭐ Conhecer grupo Filmex PLUS", callback_data="plano_vip")],
             [InlineKeyboardButton("💬 Falar com o Suporte", url="https://t.me/-1004377593053")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -124,7 +124,7 @@ def webhook_kiwify():
                     await telegram_app.bot.send_message(
                         chat_id=cliente_telegram_id,
                         text=f"🎉 **Pagamento Aprovado com Sucesso!**\n\n"
-                             f"Obrigado por assinar o **Filmex**!\n"
+                             f"Obrigado por assinar o **Filmex PLUS**!\n"
                              f"Aqui está o seu link de acesso exclusivo para o canal VIP:\n\n"
                              f"{link_convite.invite_link}\n\n"
                              f"⚠️ *Este link é de uso único e sua assinatura é válida por 30 dias.*"
@@ -189,7 +189,7 @@ async def loop_envio_canal():
             )
             
             # Botão apontando diretamente para o chat do bot no Telegram
-            keyboard = [[InlineKeyboardButton("⭐ Conhecer o Filmex", url="https://t.me/QThin_bot")]]
+            keyboard = [[InlineKeyboardButton("⭐ Conhecer o Filmex PLUS", url="https://t.me/QThin_bot")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             await telegram_app.bot.send_message(
