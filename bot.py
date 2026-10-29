@@ -193,7 +193,7 @@ async def loop_envio_canal():
                 "Quer fazer parte do nosso canal VIP e liberar o seu acesso completo hoje mesmo?"
             )
             
-            keyboard = [[InlineKeyboardButton("⭐ Conhecer o Filmex", url="https://t.me/-1004377593053")]]
+            keyboard = [[InlineKeyboardButton("⭐ Conhecer o Filmex", url="https://t.me/@QThin_bot")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             await telegram_app.bot.send_message(
