@@ -26,7 +26,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_name = update.effective_user.first_name
     keyboard = [
         [InlineKeyboardButton("⭐ Conhecer o Filmex", callback_data="plano_vip")],
-        [InlineKeyboardButton("💬 Falar com o Suporte", url="https://t.me/Filmex_Grupo")]
+        [InlineKeyboardButton("💬 Falar com o Suporte", url="https://t.me/-1004366728974")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
